@@ -1,5 +1,6 @@
 #### SPEND MANAGEMENT #####
 import collections
+import itertools
 import json
 import os
 from collections.abc import Mapping, Sequence
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 import litellm
 from litellm._logging import verbose_proxy_logger
+from litellm.constants import SPEND_LOG_READ_BATCH_MAX_ROWS
 from litellm.proxy._types import *
 from litellm.proxy._types import ProviderBudgetResponse, ProviderBudgetResponseObject
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
@@ -153,7 +155,7 @@ class _SpendLogsTable(Protocol):
     """The subset of the Prisma spend-logs table API this module uses."""
 
     async def find_many(
-        self, *, where: Mapping[str, object], order: Mapping[str, str]
+        self, *, where: Mapping[str, object], order: Sequence[Mapping[str, str]], take: int, skip: int
     ) -> Sequence[_SupportsModelDump]: ...
 
     async def find_unique(
@@ -199,9 +201,18 @@ async def _find_spend_logs(
     prisma_client: PrismaClient,
     where: Mapping[str, object],
     order: Mapping[str, str],
+    batch_size: int = SPEND_LOG_READ_BATCH_MAX_ROWS,
 ) -> Sequence[_SupportsModelDump]:
-    """Read spend log rows as Prisma model instances."""
-    return await _spend_logs_table(prisma_client).find_many(where=where, order=order)
+    """Read spend log rows as Prisma model instances in bounded batches."""
+    table: Final = _spend_logs_table(prisma_client)
+    stable_order: Final = [dict(order), {"request_id": "desc"}]  # mutable-ok: Prisma expects order as a list of dicts
+    batches: Final[list[Sequence[_SupportsModelDump]]] = []  # mutable-ok: accumulator for paged async reads
+    for page in itertools.count():
+        batch = await table.find_many(where=where, order=stable_order, take=batch_size, skip=page * batch_size)
+        batches.append(batch)
+        if len(batch) < batch_size:
+            return tuple(itertools.chain.from_iterable(batches))
+    raise AssertionError("unreachable: itertools.count never ends")
 
 
 async def _find_spend_log_row(prisma_client: PrismaClient, request_id: str) -> _SpendLogOwnershipRow | None:
@@ -2921,7 +2932,6 @@ async def view_spend_logs(
             raise Exception(
                 "Database not connected. Connect a database to your proxy - https://docs.litellm.ai/docs/simple_proxy#managing-auth---virtual-keys"
             )
-        spend_logs = []
         if (
             start_date is not None
             and isinstance(start_date, str)
@@ -3028,10 +3038,6 @@ async def view_spend_logs(
                 scoped_filter["request_id"] = request_id
             if user_id is not None and isinstance(user_id, str):
                 scoped_filter["user"] = user_id
-
-            if not scoped_filter:
-                spend_logs = await prisma_client.get_data(table_name="spend", query_type="find_all")
-                return spend_logs
 
             data = await _find_spend_logs(
                 prisma_client,
