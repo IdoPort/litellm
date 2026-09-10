@@ -2682,6 +2682,73 @@ class TestOpenAIPassthroughRoute:
             assert result == {"id": "asst_123", "object": "assistant"}
 
 
+def test_move_before_generic_provider_routes_reorders_before_first_generic_route():
+    """
+    A custom pass-through route (e.g. a self-hosted Anthropic-compatible endpoint
+    reached via a "/claude-aws" prefix) must be moved to sit before the first
+    generic "/{provider}/..." route, so it wins path resolution instead of being
+    shadowed by native routes like /{provider}/v1/files and /{provider}/v1/batches
+    (see https://github.com/BerriAI/litellm/issues/37925).
+    """
+    from litellm.proxy.pass_through_endpoints.pass_through_endpoints import (
+        SafeRouteAdder,
+    )
+
+    class _FakeRoute:
+        def __init__(self, path):
+            self.path = path
+
+    class _FakeRouter:
+        def __init__(self, routes):
+            self.routes = routes
+
+    class _FakeApp:
+        def __init__(self, routes):
+            self.routes = routes
+            self.router = _FakeRouter(routes)
+
+    generic_route = _FakeRoute("/{provider}/v1/files")
+    other_route = _FakeRoute("/health")
+    new_route = _FakeRoute("/claude-aws/v1/files")
+    routes = [other_route, generic_route, new_route]
+    app = _FakeApp(routes)
+
+    SafeRouteAdder._move_before_generic_provider_routes(app=app)
+
+    assert app.router.routes == [other_route, new_route, generic_route]
+
+
+def test_move_before_generic_provider_routes_is_a_no_op_without_a_generic_route():
+    """
+    If no generic "/{provider}/..." route is registered on the app (e.g. a minimal
+    deployment without the files/batches routers mounted), the newly-appended custom
+    route is left exactly where it was appended -- a safe no-op fallback.
+    """
+    from litellm.proxy.pass_through_endpoints.pass_through_endpoints import (
+        SafeRouteAdder,
+    )
+
+    class _FakeRoute:
+        def __init__(self, path):
+            self.path = path
+
+    class _FakeRouter:
+        def __init__(self, routes):
+            self.routes = routes
+
+    class _FakeApp:
+        def __init__(self, routes):
+            self.routes = routes
+            self.router = _FakeRouter(routes)
+
+    routes = [_FakeRoute("/health"), _FakeRoute("/claude-aws/v1/files")]
+    app = _FakeApp(routes)
+
+    SafeRouteAdder._move_before_generic_provider_routes(app=app)
+
+    assert app.router.routes == routes
+
+
 class TestCursorProxyRoute:
     """Tests for the Cursor Cloud Agents pass-through route."""
 
