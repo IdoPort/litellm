@@ -2682,34 +2682,39 @@ class TestOpenAIPassthroughRoute:
             assert result == {"id": "asst_123", "object": "assistant"}
 
 
+async def _fake_route_endpoint():
+    pass
+
+
+class _FakeRouter:
+    def __init__(self, routes):
+        self.routes = routes
+
+
+class _FakeApp:
+    def __init__(self, routes):
+        self.routes = routes
+        self.router = _FakeRouter(routes)
+
+
 def test_move_before_generic_provider_routes_reorders_before_first_generic_route():
     """
     A custom pass-through route (e.g. a self-hosted Anthropic-compatible endpoint
     reached via a "/claude-aws" prefix) must be moved to sit before the first
-    generic "/{provider}/..." route, so it wins path resolution instead of being
-    shadowed by native routes like /{provider}/v1/files and /{provider}/v1/batches
+    generic "/{provider}/..." route whose template actually captures its own path,
+    so it wins path resolution instead of being shadowed by native routes like
+    /{provider}/v1/files and /{provider}/v1/batches
     (see https://github.com/BerriAI/litellm/issues/37925).
     """
+    from starlette.routing import Route
+
     from litellm.proxy.pass_through_endpoints.pass_through_endpoints import (
         SafeRouteAdder,
     )
 
-    class _FakeRoute:
-        def __init__(self, path):
-            self.path = path
-
-    class _FakeRouter:
-        def __init__(self, routes):
-            self.routes = routes
-
-    class _FakeApp:
-        def __init__(self, routes):
-            self.routes = routes
-            self.router = _FakeRouter(routes)
-
-    generic_route = _FakeRoute("/{provider}/v1/files")
-    other_route = _FakeRoute("/health")
-    new_route = _FakeRoute("/claude-aws/v1/files")
+    generic_route = Route("/{provider}/v1/files", _fake_route_endpoint)
+    other_route = Route("/health", _fake_route_endpoint)
+    new_route = Route("/claude-aws/v1/files", _fake_route_endpoint)
     routes = [other_route, generic_route, new_route]
     app = _FakeApp(routes)
 
@@ -2724,24 +2729,44 @@ def test_move_before_generic_provider_routes_is_a_no_op_without_a_generic_route(
     deployment without the files/batches routers mounted), the newly-appended custom
     route is left exactly where it was appended -- a safe no-op fallback.
     """
+    from starlette.routing import Route
+
     from litellm.proxy.pass_through_endpoints.pass_through_endpoints import (
         SafeRouteAdder,
     )
 
-    class _FakeRoute:
-        def __init__(self, path):
-            self.path = path
+    routes = [
+        Route("/health", _fake_route_endpoint),
+        Route("/claude-aws/v1/files", _fake_route_endpoint),
+    ]
+    app = _FakeApp(routes)
 
-    class _FakeRouter:
-        def __init__(self, routes):
-            self.routes = routes
+    SafeRouteAdder._move_before_generic_provider_routes(app=app)
 
-    class _FakeApp:
-        def __init__(self, routes):
-            self.routes = routes
-            self.router = _FakeRouter(routes)
+    assert app.router.routes == routes
 
-    routes = [_FakeRoute("/health"), _FakeRoute("/claude-aws/v1/files")]
+
+def test_move_before_generic_provider_routes_does_not_shadow_unrelated_wildcard_routes():
+    """
+    A wildcard pass-through route (e.g. "/key/{subpath:path}") must not be moved
+    ahead of a generic "/{provider}/..." route just because that route happens to
+    exist earlier in app.routes -- its own path never structurally matches a
+    "/{provider}/..." template, so it must be left exactly where it was appended.
+    Reordering unconditionally would also promote it ahead of every route
+    registered between the generic route and the end of the list, including
+    unrelated, authenticated built-in routes like "/key/generate"
+    (see https://github.com/BerriAI/litellm/pull/38017#discussion_r4003591579).
+    """
+    from starlette.routing import Route
+
+    from litellm.proxy.pass_through_endpoints.pass_through_endpoints import (
+        SafeRouteAdder,
+    )
+
+    generic_route = Route("/{provider}/v1/files", _fake_route_endpoint)
+    key_generate_route = Route("/key/generate", _fake_route_endpoint)
+    new_route = Route("/key/{subpath:path}", _fake_route_endpoint)
+    routes = [generic_route, key_generate_route, new_route]
     app = _FakeApp(routes)
 
     SafeRouteAdder._move_before_generic_provider_routes(app=app)
