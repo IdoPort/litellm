@@ -323,6 +323,11 @@ class LiteLLMRoutes(enum.Enum):
         "/files/{file_id}",
         "/v1/files/{file_id}/content",
         "/files/{file_id}/content",
+        # Cady fork-only: mirrors the /claude-aws pass_through_endpoints
+        # config (AWS Bedrock Anthropic gateway) in AutomaticSchematicReview's
+        # Infrastructure/LiteLLMProxy/config.yaml -- not an upstream route
+        "/claude-aws/v1/files",
+        "/claude-aws/v1/files/{file_id}",
         # fine_tuning
         "/fine_tuning/jobs",
         "/v1/fine_tuning/jobs",
@@ -433,6 +438,9 @@ class LiteLLMRoutes(enum.Enum):
         "/v1/messages/count_tokens",
         "/v1/skills",
         "/v1/skills/{skill_id}",
+        # Cady fork-only: mirrors the /claude-aws pass_through_endpoints
+        # config in AutomaticSchematicReview's Infrastructure/LiteLLMProxy/config.yaml
+        "/claude-aws/v1/messages/count_tokens",
     ]
 
     # MCP tool-call / passthrough routes — data-plane. Gated by DISABLE_LLM_API_ENDPOINTS.
@@ -687,6 +695,9 @@ class LiteLLMRoutes(enum.Enum):
             "/tag/list",
             "/v1/models/{model_id}",
             "/models/{model_id}",
+            # Cady fork-only: mirrors the /claude-aws pass_through_endpoints
+            # config in AutomaticSchematicReview's Infrastructure/LiteLLMProxy/config.yaml
+            "/claude-aws/v1/models/{model_id}",
             "/guardrails/list",
             "/v2/guardrails/list",
             "/project/list",
