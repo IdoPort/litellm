@@ -695,9 +695,6 @@ class LiteLLMRoutes(enum.Enum):
             "/tag/list",
             "/v1/models/{model_id}",
             "/models/{model_id}",
-            # Cady fork-only: mirrors the /claude-aws pass_through_endpoints
-            # config in AutomaticSchematicReview's Infrastructure/LiteLLMProxy/config.yaml
-            "/claude-aws/v1/models/{model_id}",
             "/guardrails/list",
             "/v2/guardrails/list",
             "/project/list",

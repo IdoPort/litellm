@@ -534,21 +534,12 @@ def test_claude_aws_passthrough_routes_are_recognized():
     """
     Cady fork-only: /claude-aws/* mirrors the AWS Bedrock Anthropic gateway
     pass_through_endpoints config, so it must get the same route recognition
-    as the native /v1/files, /v1/messages/count_tokens, and /v1/models/{id}
+    as the native /v1/files and /v1/messages/count_tokens
     routes -- otherwise internal_user keys get a 401 on these custom paths.
     """
-    from litellm.proxy._types import LiteLLMRoutes
-
     assert RouteChecks.is_llm_api_route("/claude-aws/v1/files") is True
     assert RouteChecks.is_llm_api_route("/claude-aws/v1/files/file_abc123") is True
     assert RouteChecks.is_llm_api_route("/claude-aws/v1/messages/count_tokens") is True
-    assert (
-        RouteChecks.check_route_access(
-            route="/claude-aws/v1/models/claude-haiku-4-5-20251001",
-            allowed_routes=LiteLLMRoutes.internal_user_routes.value,
-        )
-        is True
-    )
 
 
 def test_virtual_key_llm_api_routes_allows_registered_pass_through_endpoints():
